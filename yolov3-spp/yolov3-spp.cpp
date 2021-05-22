@@ -6,6 +6,9 @@
 #include <chrono>
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn/dnn.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/highgui.hpp>
 #include <dirent.h>
 #include "NvInfer.h"
 #include "cuda_runtime_api.h"
@@ -215,7 +218,7 @@ ICudaEngine* createEngine(unsigned int maxBatchSize, IBuilder* builder, IBuilder
     ITensor* data = network->addInput(INPUT_BLOB_NAME, dt, Dims4{1, 3, -1, -1});
     assert(data);
 
-    std::map<std::string, Weights> weightMap = loadWeights("../yolov3-spp_ultralytics68.wts");
+    std::map<std::string, Weights> weightMap = loadWeights("../yolov3-spp.wts");
     Weights emptywts{DataType::kFLOAT, nullptr, 0};
 
     // Yeah I am stupid, I just want to expand the complete arch of darknet..
@@ -508,12 +511,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    std::vector<std::string> file_names;
-    if (read_files_in_dir(argv[2], file_names) < 0) {
-        std::cout << "read_files_in_dir failed." << std::endl;
-        return -1;
-    }
-
     static float prob[OUTPUT_SIZE];
     IRuntime* runtime = createInferRuntime(gLogger);
     assert(runtime != nullptr);
@@ -524,31 +521,43 @@ int main(int argc, char** argv) {
     delete[] trtModelStream;
     context->setOptimizationProfile(0);
 
-    int fcount = 0;
-    for (auto f: file_names) {
-        fcount++;
-        std::cout << fcount << "  " << f << std::endl;
-        cv::Mat img = cv::imread(std::string(argv[2]) + "/" + f);
+    cv::VideoCapture cap;
+    // open selected camera using selected API
+    cap.open(argv[2]);
+    // check if we succeeded
+    if (!cap.isOpened()) {
+        std::cerr << "ERROR! Unable to open video file/stream\n";
+        return -1;
+    }
+
+    while (true) {
+        cv::Mat img;
+        cap.read(img);
         if (img.empty()) continue;
         cv::Mat pr_img = letterbox(img);
-        std::cout << "letterbox shape: " << pr_img.cols << ", " << pr_img.rows << std::endl;
         if (pr_img.cols < MIN_INPUT_SIZE || pr_img.rows < MIN_INPUT_SIZE) continue;
         cv::Mat blob = cv::dnn::blobFromImage(pr_img, 1.0 / 255.0, pr_img.size(), cv::Scalar(0, 0, 0), true, false);
 
         // Run inference
         auto start = std::chrono::system_clock::now();
         doInference(*context, blob.ptr<float>(0), prob, pr_img.size());
-        auto end = std::chrono::system_clock::now();
-        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
         std::vector<Yolo::Detection> res;
         nms(res, prob);
-        std::cout << "num of bbox: " << res.size() << std::endl;
+
         for (size_t j = 0; j < res.size(); j++) {
             cv::Rect r = get_rect(img.size(), pr_img.size(), res[j].bbox);
             cv::rectangle(img, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
             cv::putText(img, std::to_string((int)res[j].class_id), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
         }
-        cv::imwrite("_" + f, img);
+        auto end = std::chrono::system_clock::now();
+        float infer_fps = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        //std::cout <<  "Pipeline speed: " << infer_fps << "ms" << std::endl;
+
+        cv::putText(img, std::to_string(infer_fps), cv::Point(20, 80), cv::FONT_HERSHEY_PLAIN, 5, cv::Scalar(0x00, 0x00, 0xFF), 2);
+        cv::resize(img, img, cv::Size(1024,512));
+        cv::imshow("Yolov3-spp", img);
+        if (cv::waitKey(1) == 113 || cv::waitKey(1) == 81)
+            break;
     }
 
     // Destroy the engine
