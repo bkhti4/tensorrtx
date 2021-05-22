@@ -5,6 +5,9 @@
 #include <vector>
 #include <chrono>
 #include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/highgui.hpp>
 #include <dirent.h>
 #include "NvInfer.h"
 #include "utils.h"
@@ -604,13 +607,7 @@ int main(int argc, char** argv) {
     } else {
         std::cerr << "arguments not right!" << std::endl;
         std::cerr << "./yolov4 -s  // serialize model to plan file" << std::endl;
-        std::cerr << "./yolov4 -d ../samples  // deserialize plan file and run inference" << std::endl;
-        return -1;
-    }
-
-    std::vector<std::string> file_names;
-    if (read_files_in_dir(argv[2], file_names) < 0) {
-        std::cout << "read_files_in_dir failed." << std::endl;
+        std::cerr << "./yolov4 -d ../video/.mp4  // deserialize plan file and run inference" << std::endl;
         return -1;
     }
 
@@ -627,48 +624,47 @@ int main(int argc, char** argv) {
     assert(context != nullptr);
     delete[] trtModelStream;
 
-    int fcount = 0;
-    for (int f = 0; f < (int)file_names.size(); f++) {
-        fcount++;
-        if (fcount < BATCH_SIZE && f + 1 != (int)file_names.size()) continue;
-        for (int b = 0; b < fcount; b++) {
-            cv::Mat img = cv::imread(std::string(argv[2]) + "/" + file_names[f - fcount + 1 + b]);
-            if (img.empty()) continue;
-            cv::Mat pr_img = preprocess_img(img);
-            for (int i = 0; i < INPUT_H * INPUT_W; i++) {
-                data[b * 3 * INPUT_H * INPUT_W + i] = pr_img.at<cv::Vec3b>(i)[2] / 255.0;
-                data[b * 3 * INPUT_H * INPUT_W + i + INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[1] / 255.0;
-                data[b * 3 * INPUT_H * INPUT_W + i + 2 * INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[0] / 255.0;
-            }
+    cv::VideoCapture cap;
+    // open selected camera using selected API
+    cap.open(argv[2]);
+    // check if we succeeded
+    if (!cap.isOpened()) {
+        std::cerr << "ERROR! Unable to open video file/stream\n";
+        return -1;
+    }
+
+    while (true) {
+        cv::Mat img;
+        cap.read(img);
+        if (img.empty()) continue;
+        cv::Mat pr_img = preprocess_img(img);
+        for (int i = 0; i < INPUT_H * INPUT_W; i++) {
+            data[i] = pr_img.at<cv::Vec3b>(i)[2] / 255.0;
+            data[i + INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[1] / 255.0;
+            data[i + 2 * INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[0] / 255.0;
         }
 
         // Run inference
         auto start = std::chrono::system_clock::now();
         doInference(*context, data, prob, BATCH_SIZE);
+        std::vector<Yolo::Detection> res;
+        nms(res, prob);
+
+        for (size_t j = 0; j < res.size(); j++) {
+            cv::Rect r = get_rect(img, res[j].bbox);
+            cv::rectangle(img, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
+            cv::putText(img, std::to_string((int)res[j].class_id), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
+        }
         auto end = std::chrono::system_clock::now();
-        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
-        std::vector<std::vector<Yolo::Detection>> batch_res(fcount);
-        for (int b = 0; b < fcount; b++) {
-            auto& res = batch_res[b];
-            nms(res, &prob[b * OUTPUT_SIZE]);
-        }
-        for (int b = 0; b < fcount; b++) {
-            auto& res = batch_res[b];
-            //std::cout << res.size() << std::endl;
-            cv::Mat img = cv::imread(std::string(argv[2]) + "/" + file_names[f - fcount + 1 + b]);
-            for (size_t j = 0; j < res.size(); j++) {
-                //float *p = (float*)&res[j];
-                //for (size_t k = 0; k < 7; k++) {
-                //    std::cout << p[k] << ", ";
-                //}
-                //std::cout << std::endl;
-                cv::Rect r = get_rect(img, res[j].bbox);
-                cv::rectangle(img, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
-                cv::putText(img, std::to_string((int)res[j].class_id), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
-            }
-            cv::imwrite("_" + file_names[f - fcount + 1 + b], img);
-        }
-        fcount = 0;
+        float infer_fps = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        //std::cout <<  "Pipeline speed: " << infer_fps << "ms" << std::endl;
+
+        cv::putText(img, std::to_string(infer_fps), cv::Point(20, 80), cv::FONT_HERSHEY_PLAIN, 5, cv::Scalar(0x00, 0x00, 0xFF), 2);
+        cv::resize(img, img, cv::Size(1024,512));
+        cv::imshow("Yolov4", img);
+        if (cv::waitKey(1) == 113 || cv::waitKey(1) == 81)
+            break;
+
     }
 
     // Destroy the engine

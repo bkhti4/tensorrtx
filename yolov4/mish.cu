@@ -21,22 +21,22 @@ namespace nvinfer1
         input_size_ = *reinterpret_cast<const int*>(data);
     }
 
-    void MishPlugin::serialize(void* buffer) const
+    void MishPlugin::serialize(void* buffer) const noexcept
     {
         *reinterpret_cast<int*>(buffer) = input_size_;
     }
 
-    size_t MishPlugin::getSerializationSize() const
+    size_t MishPlugin::getSerializationSize() const noexcept
     {  
         return sizeof(input_size_);
     }
 
-    int MishPlugin::initialize()
+    int MishPlugin::initialize() noexcept
     { 
         return 0;
     }
 
-    Dims MishPlugin::getOutputDimensions(int index, const Dims* inputs, int nbInputDims)
+    Dims MishPlugin::getOutputDimensions(int index, const Dims* inputs, int nbInputDims) noexcept
     {
         assert(nbInputDims == 1);
         assert(index == 0);
@@ -46,63 +46,63 @@ namespace nvinfer1
     }
 
     // Set plugin namespace
-    void MishPlugin::setPluginNamespace(const char* pluginNamespace)
+    void MishPlugin::setPluginNamespace(const char* pluginNamespace) noexcept
     {
         mPluginNamespace = pluginNamespace;
     }
 
-    const char* MishPlugin::getPluginNamespace() const
+    const char* MishPlugin::getPluginNamespace() const noexcept
     {
         return mPluginNamespace;
     }
 
     // Return the DataType of the plugin output at the requested index
-    DataType MishPlugin::getOutputDataType(int index, const nvinfer1::DataType* inputTypes, int nbInputs) const
+    DataType MishPlugin::getOutputDataType(int index, const nvinfer1::DataType* inputTypes, int nbInputs) const noexcept
     {
         return DataType::kFLOAT;
     }
 
     // Return true if output tensor is broadcast across a batch.
-    bool MishPlugin::isOutputBroadcastAcrossBatch(int outputIndex, const bool* inputIsBroadcasted, int nbInputs) const
+    bool MishPlugin::isOutputBroadcastAcrossBatch(int outputIndex, const bool* inputIsBroadcasted, int nbInputs) const noexcept
     {
         return false;
     }
 
     // Return true if plugin can use input that is broadcast across batch without replication.
-    bool MishPlugin::canBroadcastInputAcrossBatch(int inputIndex) const
+    bool MishPlugin::canBroadcastInputAcrossBatch(int inputIndex) const noexcept
     {
         return false;
     }
 
-    void MishPlugin::configurePlugin(const PluginTensorDesc* in, int nbInput, const PluginTensorDesc* out, int nbOutput)
+    void MishPlugin::configurePlugin(const PluginTensorDesc* in, int nbInput, const PluginTensorDesc* out, int nbOutput) noexcept
     {
     }
 
     // Attach the plugin object to an execution context and grant the plugin the access to some context resource.
-    void MishPlugin::attachToContext(cudnnContext* cudnnContext, cublasContext* cublasContext, IGpuAllocator* gpuAllocator)
+    void MishPlugin::attachToContext(cudnnContext* cudnnContext, cublasContext* cublasContext, IGpuAllocator* gpuAllocator) noexcept
     {
     }
 
     // Detach the plugin object from its execution context.
-    void MishPlugin::detachFromContext() {}
+    void MishPlugin::detachFromContext() noexcept {}
 
-    const char* MishPlugin::getPluginType() const
+    const char* MishPlugin::getPluginType() const noexcept
     {
         return "Mish_TRT";
     }
 
-    const char* MishPlugin::getPluginVersion() const
+    const char* MishPlugin::getPluginVersion() const noexcept
     {
         return "1";
     }
 
-    void MishPlugin::destroy()
+    void MishPlugin::destroy() noexcept
     {
         delete this;
     }
 
     // Clone the plugin
-    IPluginV2IOExt* MishPlugin::clone() const
+    IPluginV2IOExt* MishPlugin::clone() const noexcept
     {
         MishPlugin *p = new MishPlugin();
         p->input_size_ = input_size_;
@@ -141,7 +141,7 @@ namespace nvinfer1
         mish_kernel<<<grid_size, block_size>>>(inputs[0], output, input_size_ * batchSize);
     }
 
-    int MishPlugin::enqueue(int batchSize, const void*const * inputs, void** outputs, void* workspace, cudaStream_t stream)
+    int MishPlugin::enqueue(int batchSize, const void*const * inputs, void*const* outputs, void* workspace, cudaStream_t stream) noexcept
     {
         //assert(batchSize == 1);
         //GPU
@@ -161,29 +161,29 @@ namespace nvinfer1
         mFC.fields = mPluginAttributes.data();
     }
 
-    const char* MishPluginCreator::getPluginName() const
+    const char* MishPluginCreator::getPluginName() const noexcept
     {
             return "Mish_TRT";
     }
 
-    const char* MishPluginCreator::getPluginVersion() const
+    const char* MishPluginCreator::getPluginVersion() const noexcept
     {
             return "1";
     }
 
-    const PluginFieldCollection* MishPluginCreator::getFieldNames()
+    const PluginFieldCollection* MishPluginCreator::getFieldNames() noexcept
     {
             return &mFC;
     }
 
-    IPluginV2IOExt* MishPluginCreator::createPlugin(const char* name, const PluginFieldCollection* fc)
+    IPluginV2IOExt* MishPluginCreator::createPlugin(const char* name, const PluginFieldCollection* fc) noexcept
     {
         MishPlugin* obj = new MishPlugin();
         obj->setPluginNamespace(mNamespace.c_str());
         return obj;
     }
 
-    IPluginV2IOExt* MishPluginCreator::deserializePlugin(const char* name, const void* serialData, size_t serialLength)
+    IPluginV2IOExt* MishPluginCreator::deserializePlugin(const char* name, const void* serialData, size_t serialLength) noexcept
     {
         // This object will be deleted when the network is destroyed, which will
         // call MishPlugin::destroy()
