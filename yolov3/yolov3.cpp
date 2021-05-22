@@ -4,6 +4,10 @@
 #include <sstream>
 #include <vector>
 #include <chrono>
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/highgui.hpp>
 #include "NvInfer.h"
 #include "cuda_runtime_api.h"
 #include "utils.h"
@@ -449,12 +453,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    std::vector<std::string> file_names;
-    if (read_files_in_dir(argv[2], file_names) < 0) {
-        std::cout << "read_files_in_dir failed." << std::endl;
-        return -1;
-    }
-
     // prepare input data ---------------------------
     static float data[3 * INPUT_H * INPUT_W];
     //for (int i = 0; i < 3 * INPUT_H * INPUT_W; i++)
@@ -468,11 +466,18 @@ int main(int argc, char** argv) {
     assert(context != nullptr);
     delete[] trtModelStream;
 
-    int fcount = 0;
-    for (auto f: file_names) {
-        fcount++;
-        std::cout << fcount << "  " << f << std::endl;
-        cv::Mat img = cv::imread(std::string(argv[2]) + "/" + f);
+    cv::VideoCapture cap;
+    // open selected camera using selected API
+    cap.open(argv[2]);
+    // check if we succeeded
+    if (!cap.isOpened()) {
+        std::cerr << "ERROR! Unable to open video file/stream\n";
+        return -1;
+    }
+
+    while (true) {
+        cv::Mat img;
+        cap.read(img);
         if (img.empty()) continue;
         cv::Mat pr_img = preprocess_img(img, INPUT_W, INPUT_H);
         for (int i = 0; i < INPUT_H * INPUT_W; i++) {
@@ -484,16 +489,24 @@ int main(int argc, char** argv) {
         // Run inference
         auto start = std::chrono::system_clock::now();
         doInference(*context, data, prob, 1);
-        auto end = std::chrono::system_clock::now();
-        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
         std::vector<Yolo::Detection> res;
         nms(res, prob);
+
         for (size_t j = 0; j < res.size(); j++) {
             cv::Rect r = get_rect(img, res[j].bbox);
             cv::rectangle(img, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
             cv::putText(img, std::to_string((int)res[j].class_id), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
         }
-        cv::imwrite("_" + f, img);
+        auto end = std::chrono::system_clock::now();
+        float infer_fps = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        //std::cout <<  "Pipeline speed: " << infer_fps << "ms" << std::endl;
+
+        cv::putText(img, std::to_string(infer_fps), cv::Point(20, 80), cv::FONT_HERSHEY_PLAIN, 5, cv::Scalar(0x00, 0x00, 0xFF), 2);
+        cv::resize(img, img, cv::Size(1024,512));
+        cv::imshow("Yolov3", img);
+        if (cv::waitKey(1) == 113 || cv::waitKey(1) == 81)
+            break;
+
     }
 
     // Destroy the engine
