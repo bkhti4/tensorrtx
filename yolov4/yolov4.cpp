@@ -107,7 +107,10 @@ void nms(std::vector<Yolo::Detection>& res, float *output, float nms_thresh = NM
         Yolo::Detection det;
         memcpy(&det, &output[1 + DETECTION_SIZE * i], DETECTION_SIZE * sizeof(float));
         if (m.count(det.class_id) == 0) m.emplace(det.class_id, std::vector<Yolo::Detection>());
-        m[det.class_id].push_back(det);
+        if (det.class_id == 0 || det.class_id == 1 ||  det.class_id == 2 ||  det.class_id == 3
+            || det.class_id == 5 || det.class_id == 6 || det.class_id == 7 ||det.class_id == 9
+            || det.class_id == 10 || det.class_id == 11 || det.class_id == 12 ||  det.class_id == 15 || det.class_id == 16)
+            m[det.class_id].push_back(det);
     }
     for (auto it = m.begin(); it != m.end(); it++) {
         //std::cout << it->second[0].class_id << " --- " << std::endl;
