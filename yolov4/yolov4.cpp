@@ -15,6 +15,7 @@
 #include "logging.h"
 #include "yololayer.h"
 #include "mish.h"
+#include "centroidtracker.h"
 
 #define USE_FP16  // comment out this if want to use FP32
 #define DEVICE 0  // GPU id
@@ -635,10 +636,12 @@ int main(int argc, char** argv) {
         std::cerr << "ERROR! Unable to open video file/stream\n";
         return -1;
     }
+    cv::Mat img;
+    auto centroidTracker = new CentroidTracker(10, 15);
 
     while (true) {
-        cv::Mat img;
         cap.read(img);
+        cv::resize(img, img, cv::Size(1024,512));
         if (img.empty()) continue;
         cv::Mat pr_img = preprocess_img(img);
         for (int i = 0; i < INPUT_H * INPUT_W; i++) {
@@ -646,6 +649,8 @@ int main(int argc, char** argv) {
             data[i + INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[1] / 255.0;
             data[i + 2 * INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[0] / 255.0;
         }
+
+        std::vector<std::vector<int>> centBoxes;
 
         // Run inference
         auto start = std::chrono::system_clock::now();
@@ -655,15 +660,42 @@ int main(int argc, char** argv) {
 
         for (size_t j = 0; j < res.size(); j++) {
             cv::Rect r = get_rect(img, res[j].bbox);
+            if ((int)res[j].class_id == 2){
+                centBoxes.insert(centBoxes.end(), {r.x, r.y, r.x + r.width, r.y + r.height});
+            }
             cv::rectangle(img, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
-            cv::putText(img, std::to_string((int)res[j].class_id), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
+            //cv::putText(img, std::to_string((int)res[j].class_id), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
         }
+
+        auto objects = centroidTracker->update(centBoxes);
+
+        if (!objects.empty()) {
+            for (auto obj: objects) {
+                cv::circle(img, cv::Point(obj.second.first, obj.second.second), 4, cv::Scalar(255, 0, 0), -1);
+                std::string ID = std::to_string(obj.first);
+                cv::putText(img, ID, cv::Point(obj.second.first - 10, obj.second.second - 10),
+                            cv::FONT_HERSHEY_COMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+            }
+
+            //drawing the path
+            for (auto obj: objects) {
+                int k = 1;
+                for (int i = 1; i < centroidTracker->path_keeper[obj.first].size(); i++) {
+                    int thickness = int(sqrt(20 / float(k + 1) * 2.5));
+                    cv::line(img,
+                             cv::Point(centroidTracker->path_keeper[obj.first][i - 1].first, centroidTracker->path_keeper[obj.first][i - 1].second),
+                             cv::Point(centroidTracker->path_keeper[obj.first][i].first, centroidTracker->path_keeper[obj.first][i].second),
+                             cv::Scalar(0, 0, 255), thickness);
+                    k += 1;
+                }
+            }
+        }
+
         auto end = std::chrono::system_clock::now();
         float infer_fps = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
         //std::cout <<  "Pipeline speed: " << infer_fps << "ms" << std::endl;
 
         cv::putText(img, std::to_string(infer_fps), cv::Point(20, 80), cv::FONT_HERSHEY_PLAIN, 5, cv::Scalar(0x00, 0x00, 0xFF), 2);
-        cv::resize(img, img, cv::Size(1024,512));
         cv::imshow("Yolov4", img);
         if (cv::waitKey(1) == 113 || cv::waitKey(1) == 81)
             break;

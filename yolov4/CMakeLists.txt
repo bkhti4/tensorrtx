@@ -27,7 +27,7 @@ target_link_libraries(myplugins nvinfer cudart)
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(yolov4 ${PROJECT_SOURCE_DIR}/yolov4.cpp)
+add_executable(yolov4 ${PROJECT_SOURCE_DIR}/yolov4.cpp ${PROJECT_SOURCE_DIR}/centroidtracker.cpp ${PROJECT_SOURCE_DIR}/centroidtracker.h)
 target_link_libraries(yolov4 nvinfer)
 target_link_libraries(yolov4 cudart)
 target_link_libraries(yolov4 myplugins)
