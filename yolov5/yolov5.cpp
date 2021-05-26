@@ -1,6 +1,5 @@
 #include <iostream>
 #include <chrono>
-#include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/highgui.hpp>
@@ -9,11 +8,12 @@
 #include "common.hpp"
 #include "utils.h"
 #include "calibrator.h"
+#include "centroidtracker.h"
 
 #define USE_FP16  // set USE_INT8 or USE_FP16 or USE_FP32
 #define DEVICE 0  // GPU id
-#define NMS_THRESH 0.4
-#define CONF_THRESH 0.5
+#define NMS_THRESH 0.5
+#define CONF_THRESH 0.7
 #define BATCH_SIZE 1
 
 // stuff we know about the network and the input/output blobs
@@ -271,10 +271,12 @@ int main(int argc, char** argv) {
         std::cerr << "ERROR! Unable to open video file/stream\n";
         return -1;
     }
+    cv::Mat img;
+    auto centroidTracker = new CentroidTracker(10, 15, 17); // 17 here represents the highest class id index to be tracked
 
     while (true) {
-        cv::Mat img;
         cap.read(img);
+        cv::resize(img, img, cv::Size(1024,512));
         if (img.empty()) continue;
         cv::Mat pr_img = preprocess_img(img, INPUT_W, INPUT_H);
         for (int i = 0; i < INPUT_H * INPUT_W; i++) {
@@ -282,6 +284,9 @@ int main(int argc, char** argv) {
             data[i + INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[1] / 255.0;
             data[i + 2 * INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[0] / 255.0;
         }
+
+        std::vector<Object> detObjects;
+
         // Run inference
         auto start = std::chrono::system_clock::now();
         doInference(*context, stream, buffers, data, prob, BATCH_SIZE);
@@ -290,15 +295,26 @@ int main(int argc, char** argv) {
 
         for (size_t j = 0; j < res.size(); j++) {
             cv::Rect r = get_rect(img, res[j].bbox);
-            cv::rectangle(img, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
-            cv::putText(img, std::to_string((int)res[j].class_id), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
+            detObjects.insert(detObjects.end(), {(int)res[j].class_id, r, res[j].conf});
         }
+
+        auto instanceObjects = centroidTracker->update(detObjects);
+
+        if (!instanceObjects.empty()) {
+            for (auto obj: instanceObjects) {
+                cv::circle(img, cv::Point(obj.cx, obj.cy), 4, cv::Scalar(255, 0, 0), -1);
+                cv::rectangle(img, obj.object.bboxCords, cv::Scalar(0x27, 0xC1, 0x36), 2);
+                std::string ID = std::to_string(obj.uniqueID);
+                cv::putText(img, ID, cv::Point(obj.cx - 10, obj.cy - 10),
+                            cv::FONT_HERSHEY_COMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+            }
+        }
+
         auto end = std::chrono::system_clock::now();
         float infer_fps = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
         //std::cout <<  "Pipeline speed: " << infer_fps << "ms" << std::endl;
 
         cv::putText(img, std::to_string(infer_fps), cv::Point(20, 80), cv::FONT_HERSHEY_PLAIN, 5, cv::Scalar(0x00, 0x00, 0xFF), 2);
-        cv::resize(img, img, cv::Size(1024,512));
         cv::imshow("Yolov5", img);
         if (cv::waitKey(1) == 113 || cv::waitKey(1) == 81)
             break;
