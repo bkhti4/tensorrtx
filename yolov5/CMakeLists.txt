@@ -28,12 +28,10 @@ find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 add_executable(yolov5 ${PROJECT_SOURCE_DIR}/calibrator.cpp ${PROJECT_SOURCE_DIR}/yolov5.cpp ${PROJECT_SOURCE_DIR}/centroidtracker.cpp ${PROJECT_SOURCE_DIR}/centroidtracker.h)
-add_executable(perspective ${PROJECT_SOURCE_DIR}/perspective.cpp)
 target_link_libraries(yolov5 nvinfer)
 target_link_libraries(yolov5 cudart)
 target_link_libraries(yolov5 myplugins)
 target_link_libraries(yolov5 ${OpenCV_LIBS})
-target_link_libraries(perspective ${OpenCV_LIBS})
 
 add_definitions(-O2 -pthread)
 
